@@ -1,0 +1,13 @@
+data/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.idea/
+*.egg-info/
+dist/
+build/
+.DS_Store
+*.mp4
+*.avi
+*.mov
