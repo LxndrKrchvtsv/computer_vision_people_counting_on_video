@@ -1,5 +1,66 @@
 import numpy as np
 
+class LineCounter:
+    def __init__(self, line_y: int, max_missing: int = 30):
+        self.line_y = line_y
+        self.total_ids = 0
+        self.max_missing = max_missing
+        # {id: {"cx", "cy", "prev_cy", "bbox", "missing", "counted"}}
+        self.tracks: dict[int, dict] = {}
+        self.count_in = 0
+        self.count_out = 0
+
+    def update(self, detections: list[dict]) -> dict[int, dict]:
+        seen = set()
+        for d in detections:
+            tid = d["id"]
+            seen.add(tid)
+            cx, cy = d["cx"], d["cy"]
+
+            if tid not in self.tracks:
+                self.total_ids += 1
+                self.tracks[tid] = {
+                    "cx": cx,
+                    "cy": cy,
+                    "prev_cy": cy,
+                    "first_cy": cy,
+                    "bbox": d["bbox"],
+                    "missing": 0,
+                    "counted": False,
+                }
+                continue
+
+            t = self.tracks[tid]
+            prev_cy = t["cy"]
+            t.update({
+                "cx": cx,
+                "cy": cy,
+                "prev_cy": prev_cy,
+                "bbox": d["bbox"],
+                "missing": 0,
+            })
+
+            if not t["counted"]:
+                if prev_cy < self.line_y <= cy:
+                    self.count_in += 1
+                    t["counted"] = True
+                elif prev_cy > self.line_y >= cy:
+                    self.count_out += 1
+                    t["counted"] = True
+
+        for tid in list(self.tracks):
+            if tid not in seen:
+                self.tracks[tid]["missing"] += 1
+                if self.tracks[tid]["missing"] > self.max_missing:
+                    t = self.tracks[tid]
+                    if not t["counted"]:
+                        if t["first_cy"] < self.line_y <= t["cy"]:
+                            self.count_in += 1
+                        elif t["first_cy"] > self.line_y >= t["cy"]:
+                            self.count_out += 1
+                    del self.tracks[tid]
+
+        return self.tracks
 
 class CentroidTracker:
     """

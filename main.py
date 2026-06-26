@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--yolo-weights", default="yolov8n.pt", help="YOLO weights file")
     parser.add_argument("--yolo-conf", type=float, default=0.35, help="YOLO confidence threshold")
     parser.add_argument("--motion-threshold", type=int, default=5000, help="Min motion area (px) to trigger YOLO")
+    parser.add_argument("--yolo-imgsz", type=int, default=1280, help="YOLO inference image size")
     args = parser.parse_args()
 
     run_pipeline(

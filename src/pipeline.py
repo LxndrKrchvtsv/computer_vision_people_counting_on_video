@@ -6,31 +6,26 @@ from src.enhance import enhance_clahe
 from src.segment import create_subtractor, segment_mog2
 from src.clean import clean_mask
 from src.detect import detect_people
-from src.detect_yolo import detect_people_yolo
-from src.decision import CentroidTracker
-from src.visualize import visualize
-
-
-def save_stage(output_dir: Path, frame_idx: int, name: str, image: np.ndarray):
-    path = output_dir / f"{frame_idx:05d}_{name}.jpg"
-    cv2.imwrite(str(path), image)
+from src.decision import CentroidTracker, LineCounter
+from src.visualize import visualize, visualize_tracks
 
 
 def run_pipeline(
-    video_path: str,
-    output_dir: str = "data/output",
-    line_y: int | None = None,
-    min_area: int = 800,
-    max_area: int = 18000,
-    kernel_size: int = 7,
-    warmup_frames: int = 120,
-    save_stage_interval: int = 300,
-    save_stages: bool = True,
-    display: bool = False,
-    use_yolo: bool = False,
-    yolo_weights: str = "yolov8n.pt",
-    yolo_conf: float = 0.35,
-    motion_threshold: int = 5000,
+        video_path: str,
+        output_dir: str = "data/output",
+        line_y: int | None = None,
+        min_area: int = 800,
+        max_area: int = 18000,
+        kernel_size: int = 7,
+        warmup_frames: int = 120,
+        save_stage_interval: int = 300,
+        save_stages: bool = True,
+        display: bool = False,
+        use_yolo: bool = False,
+        yolo_weights: str = "yolov8n.pt",
+        yolo_conf: float = 0.35,
+        yolo_imgsz: int = 1280,
+        motion_threshold: int = 5000,
 ):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -48,6 +43,7 @@ def run_pipeline(
 
     subtractor = create_subtractor()
     tracker = CentroidTracker(line_y=line_y)
+    counter = LineCounter(line_y=line_y)
 
     # Output video writer
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -83,18 +79,16 @@ def run_pipeline(
 
         # Stage 4: Detect
         if use_yolo:
-            yolo_result = detect_people_yolo(
-                frame, clean,
-                motion_threshold=motion_threshold,
-                conf=yolo_conf,
-                weights=yolo_weights,
-            )
-            if yolo_result is None:
-                # No motion — skip tracker update, keep last result
-                writer.write(result if frame_idx > 0 else frame)
-                frame_idx += 1
-                continue
-            detections = yolo_result
+            detections = track_people_yolo(frame, conf=yolo_conf, weights=yolo_weights, imgsz=yolo_imgsz)
+            tracks = counter.update(detections)
+            result = visualize_tracks(frame, tracks, counter.count_in, counter.count_out, line_y)
+            writer.write(result)
+            if display:
+                cv2.imshow("People Counter", result)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+            frame_idx += 1
+            continue
         else:
             detections = detect_people(clean, min_area=min_area, max_area=max_area)
 
@@ -131,8 +125,18 @@ def run_pipeline(
     if display:
         cv2.destroyAllWindows()
 
+    cin, cout = (counter.count_in, counter.count_out) if use_yolo else (tracker.count_in, tracker.count_out)
     print(f"Done. Frames processed: {frame_idx}")
-    print(f"Count IN:  {tracker.count_in}")
-    print(f"Count OUT: {tracker.count_out}")
+    print(f"Count IN:  {cin}")
+    print(f"Count OUT: {cout}")
     print(f"Output saved to: {out_path}")
-    return tracker.count_in, tracker.count_out
+    print(f"Unique IDs: {counter.total_ids}")
+    return cin, cout
+
+
+from src.track_yolo import track_people_yolo
+
+
+def save_stage(output_dir: Path, frame_idx: int, name: str, image: np.ndarray):
+    path = output_dir / f"{frame_idx:05d}_{name}.jpg"
+    cv2.imwrite(str(path), image)
