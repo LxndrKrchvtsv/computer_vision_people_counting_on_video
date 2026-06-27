@@ -17,3 +17,8 @@ def enhance_gamma(frame: np.ndarray, gamma: float = 1.5) -> np.ndarray:
     inv_gamma = 1.0 / gamma
     table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in range(256)], dtype=np.uint8)
     return cv2.LUT(frame, table)
+
+def enhance_denoise(frame: np.ndarray, ksize: int = 5) -> np.ndarray:
+    """Gaussian blur to suppress high-frequency texture (zebra stripes)
+    before background subtraction."""
+    return cv2.GaussianBlur(frame, (ksize, ksize), 0)

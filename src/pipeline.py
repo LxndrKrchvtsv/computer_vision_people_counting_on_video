@@ -2,9 +2,9 @@ import cv2
 import numpy as np
 from pathlib import Path
 
-from src.enhance import enhance_clahe
+from src.enhance import enhance_clahe, enhance_denoise
 from src.segment import create_subtractor, segment_mog2
-from src.clean import clean_mask
+from src.clean import clean_mask, filter_components
 from src.detect import detect_people
 from src.decision import CentroidTracker, LineCounter
 from src.visualize import visualize, visualize_tracks
@@ -41,7 +41,7 @@ def run_pipeline(
     if line_y is None:
         line_y = frame_h // 2
 
-    subtractor = create_subtractor()
+    subtractor = create_subtractor(var_threshold = 32.0 ,detect_shadows = True)
     tracker = CentroidTracker(line_y=line_y)
     counter = LineCounter(line_y=line_y)
 
@@ -60,7 +60,7 @@ def run_pipeline(
         ret, frame = cap.read()
         if not ret:
             break
-        subtractor.apply(enhance_clahe(frame))
+        subtractor.apply(enhance_denoise(enhance_clahe(frame)))
     print("Warmup done. Starting tracking...")
 
     while True:
@@ -71,13 +71,17 @@ def run_pipeline(
         # Stage 1: Enhance
         enhanced = enhance_clahe(frame)
 
-        # Stage 2: Segment
-        raw_mask = segment_mog2(enhanced, subtractor)
+        # Stage 2: Denoise
+        denoised = enhance_denoise(enhanced)
 
-        # Stage 3: Clean
+        # Stage 3: Segment
+        raw_mask = segment_mog2(denoised, subtractor)
+
+        # Stage 4: Clean
         clean = clean_mask(raw_mask, kernel_size=kernel_size)
+        clean = filter_components(clean)
 
-        # Stage 4: Detect
+        # Stage 5: Detect
         if use_yolo:
             detections = track_people_yolo(frame, conf=yolo_conf, weights=yolo_weights, imgsz=yolo_imgsz)
             tracks = counter.update(detections)
@@ -92,10 +96,10 @@ def run_pipeline(
         else:
             detections = detect_people(clean, min_area=min_area, max_area=max_area)
 
-        # Stage 5: Decision / tracking
+        # Stage 6: Decision / tracking
         tracks = tracker.update(detections)
 
-        # Stage 6: Visualize
+        # Stage 7: Visualize
         result = visualize(frame, detections, tracks, tracker.count_in, tracker.count_out, line_y)
 
         writer.write(result)
@@ -126,12 +130,14 @@ def run_pipeline(
         cv2.destroyAllWindows()
 
     cin, cout = (counter.count_in, counter.count_out) if use_yolo else (tracker.count_in, tracker.count_out)
+    unique = counter.total_ids if use_yolo else tracker.next_id
+
     print(f"Done. Frames processed: {frame_idx}")
     print(f"Count IN:  {cin}")
     print(f"Count OUT: {cout}")
     print(f"Output saved to: {out_path}")
     print(f"Unique IDs: {counter.total_ids}")
-    return cin, cout
+    return cin, cout, unique
 
 
 from src.track_yolo import track_people_yolo
